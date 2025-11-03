@@ -72,17 +72,16 @@ class XiaoHongShuClient(AbstractApiClient):
             x_s=x_s,
             x_t=str(int(time.time())),
         )
-
         headers = {
-            "X-S": signs["x-s"],
-            "X-T": signs["x-t"],
-            "x-S-Common": signs["x-s-common"],
+            "X-s": signs["x-s"],
+            "X-t": signs["x-t"],
+            "X-S-Common": signs["x-s-common"],
             "X-B3-Traceid": signs["x-b3-traceid"],
         }
         self.headers.update(headers)
         return self.headers
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1), reraise=True)
     async def request(self, method, url, **kwargs) -> Union[str, Any]:
         """
         封装httpx的公共请求方法，对请求响应做一些处理
@@ -96,14 +95,52 @@ class XiaoHongShuClient(AbstractApiClient):
         """
         # return response.text
         return_response = kwargs.pop("return_response", False)
+
+        # === 请求前日志：输出完整 curl 命令 ===
+        headers = kwargs.get("headers", {}) or {}
+        data = kwargs.get("data", None)
+        params = kwargs.get("params", None)
+        curl_parts = [f"curl -X {method.upper()} '{url}'"]
+        for k, v in headers.items():
+            curl_parts.append(f"-H '{k}: {v}'")
+        if data:
+            body_str = data if isinstance(data, str) else json.dumps(
+                data, ensure_ascii=False)
+            curl_parts.append(f"--data '{body_str}'")
+        if params:
+            curl_parts.append(f"# Params: {params}")  # 注释显示 params，避免过长
+        utils.logger.debug("HTTP Request:\n" + " ".join(curl_parts))
+
         async with httpx.AsyncClient(proxy=self.proxy) as client:
-            response = await client.request(method, url, timeout=self.timeout, **kwargs)
+            response = await client.request(method,
+                                            url,
+                                            timeout=self.timeout,
+                                            **kwargs)
+
+        # === 请求后日志：输出状态码与响应体 ===
+        utils.logger.debug(f"HTTP Response: {response.status_code} ← {url}")
+        try:
+            resp_json = response.json()
+            msg = resp_json.get("msg", "(no msg field)")
+            preview = json.dumps(resp_json, ensure_ascii=False,
+                                 indent=2)[:1000]
+            utils.logger.debug(f"Message: {msg}")
+            utils.logger.debug(f"Body(JSON):\n{preview}")
+        except Exception:
+            text_preview = response.text[:1000]
+            utils.logger.debug(f"Body(Text):\n{text_preview}")
 
         if response.status_code == 471 or response.status_code == 461:
             # someday someone maybe will bypass captcha
-            verify_type = response.headers["Verifytype"]
-            verify_uuid = response.headers["Verifyuuid"]
-            msg = f"出现验证码，请求失败，Verifytype: {verify_type}，Verifyuuid: {verify_uuid}, Response: {response}"
+            verify_type = response.headers.get("Verifytype","")
+            verify_uuid = response.headers.get("Verifyuuid","")
+            if verify_type and verify_uuid:
+                msg = f"出现验证码，请求失败，Verifytype: {verify_type}，Verifyuuid: {verify_uuid}, Response: {response}"
+            else:
+                resp_json = response.json()
+                msg = resp_json.get("msg", "(no msg field)")
+                code = resp_json.get("code", 0)
+                msg = f"code:{code}, msg:{msg}"
             utils.logger.error(msg)
             raise Exception(msg)
 
@@ -130,6 +167,7 @@ class XiaoHongShuClient(AbstractApiClient):
         final_uri = uri
         if isinstance(params, dict):
             final_uri = f"{uri}?" f"{urlencode(params)}"
+            final_uri = final_uri.replace("%2C",',')
         headers = await self._pre_headers(final_uri)
         return await self.request(
             method="GET", url=f"{self._host}{final_uri}", headers=headers

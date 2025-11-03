@@ -13,7 +13,7 @@ import hashlib
 import base64
 import json
 from typing import Any
-
+from .help import b64Encode
 def _build_c(e: Any, a: Any) -> str:
     c = str(e)
     if isinstance(a, (dict, list)):
@@ -30,7 +30,15 @@ def _build_c(e: Any, a: Any) -> str:
 def _md5_hex(s: str) -> str:
     return hashlib.md5(s.encode("utf-8")).hexdigest()
 
+def _js_typeof(value):
+    """
+    模拟 JavaScript 的 typeof 操作符。
+    """
+    if isinstance(value, (dict, list, tuple, set)):
+        return "object"
 
+    # 其余对象
+    return ""
 
 # ============================================================
 # Playwright 版本（异步）：传入 page（Page 对象）
@@ -50,17 +58,15 @@ async def seccore_signv2_playwright(
     """
     c = _build_c(e, a)
     d = _md5_hex(c)
-
     # 调用浏览器上下文里的 window.mnsv2
-    s = await page.evaluate("(c, d) => window.mnsv2(c, d)", [c, d])
+    s = await page.evaluate("([c,d]) => window.mnsv2(c,d)", [c, d])
     f = {
         "x0": "4.2.6",
         "x1": "xhs-pc-web",
-        "x2": "Mac OS",
+        "x2": "Windows",
         "x3": s,
-        "x4": a,
+        "x4": _js_typeof(a),
     }
     payload = json.dumps(f, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    token = "XYS_" + base64.b64encode(payload).decode("ascii")
-    print(token)
+    token = "XYS_" + b64Encode(payload)
     return token

@@ -1,12 +1,12 @@
-# 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：  
-# 1. 不得用于任何商业用途。  
-# 2. 使用时应遵守目标平台的使用条款和robots.txt规则。  
-# 3. 不得进行大规模爬取或对平台造成运营干扰。  
-# 4. 应合理控制请求频率，避免给目标平台带来不必要的负担。   
+# 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：
+# 1. 不得用于任何商业用途。
+# 2. 使用时应遵守目标平台的使用条款和robots.txt规则。
+# 3. 不得进行大规模爬取或对平台造成运营干扰。
+# 4. 应合理控制请求频率，避免给目标平台带来不必要的负担。
 # 5. 不得用于任何非法或不当的用途。
-#   
-# 详细许可条款请参阅项目根目录下的LICENSE文件。  
-# 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。  
+#
+# 详细许可条款请参阅项目根目录下的LICENSE文件。
+# 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
 
 
 # -*- coding: utf-8 -*-
@@ -132,13 +132,33 @@ def get_mobile_user_agent() -> str:
     return random.choice(ua_list)
 
 
-def convert_cookies(cookies: Optional[List[Cookie]]) -> Tuple[str, Dict]:
+def convert_cookies(
+    cookies: Optional[List[Cookie]],
+    domain_filter: Optional[str] = None,
+    high_priority_prefix: Optional[str] = None,
+) -> Tuple[str, Dict]:
     if not cookies:
         return "", {}
-    cookies_str = ";".join([f"{cookie.get('name')}={cookie.get('value')}" for cookie in cookies])
+
     cookie_dict = dict()
-    for cookie in cookies:
-        cookie_dict[cookie.get('name')] = cookie.get('value')
+    if domain_filter:
+        for c in cookies:
+            name = c.get("name")
+            value = c.get("value")
+            domain = c.get("domain", "")
+            if domain_filter not in domain:
+                continue
+
+            # 3️⃣ 若 cookie 已存在，仅在优先级更高时替换
+            if name not in cookie_dict or (
+                    high_priority_prefix
+                    and domain.startswith(high_priority_prefix)):
+                cookie_dict[name] = value
+    else:
+        for cookie in cookies:
+            cookie_dict[cookie.get('name')] = cookie.get('value')
+    cookies_str = ";".join(
+        [f"{n}={v}" for n, v in cookie_dict.items()])
     return cookies_str, cookie_dict
 
 

@@ -23,20 +23,22 @@ def sign(a1="", b1="", x_s="", x_t=""):
     """
     takes in a URI (uniform resource identifier), an optional data dictionary, and an optional ctime parameter. It returns a dictionary containing two keys: "x-s" and "x-t".
     """
+    b = ""
+    g = ""
     common = {
-        "s0": 3,  # getPlatformCode
+        "s0": 5,  # getPlatformCode
         "s1": "",
         "x0": "1",  # localStorage.getItem("b1b1")
-        "x1": "4.2.2",  # version
-        "x2": "Mac OS",
+        "x1": "4.2.6",  # version
+        "x2": "Windows",
         "x3": "xhs-pc-web",
-        "x4": "4.74.0",
+        "x4": "4.84.2",
         "x5": a1,  # cookie of a1
-        "x6": x_t,
-        "x7": x_s,
+        "x6": b,
+        "x7": g,
         "x8": b1,  # localStorage.getItem("b1")
-        "x9": mrc(x_t + x_s + b1),
-        "x10": 154,  # getSigCount
+        "x9": mrc(str(b) + g + b1),
+        "x10": 0,  # getSigCount
         "x11": "normal"
     }
     encode_str = encodeUtf8(json.dumps(common, separators=(',', ':')))
@@ -112,7 +114,7 @@ def mrc(e):
         MAX32INT = 4294967295
         return (val + (MAX32INT + 1)) % (2 * (MAX32INT + 1)) - MAX32INT - 1
 
-    for n in range(57):
+    for n in range(len(e)):
         o = ie[(o & 255) ^ ord(e[n])] ^ right_without_sign(o, 8)
     return o ^ -1 ^ 3988292384
 

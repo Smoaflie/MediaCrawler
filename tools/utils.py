@@ -16,24 +16,42 @@ from .crawler_util import *
 from .slider_util import *
 from .time_util import *
 
+def init_loging_config(log_dir="logs", log_name="media_crawler.log", debug_to_file=False):
+    """
+    初始化日志配置
+    :param log_dir: 日志保存目录
+    :param log_name: 日志文件名
+    :param debug_to_file: 是否将文件日志级别设为 DEBUG（True）或 INFO（False）
+    :return: logger 实例
+    """
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, log_name)
 
-def init_loging_config():
-    level = logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(name)s %(levelname)s (%(filename)s:%(lineno)d) - %(message)s",
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    _logger = logging.getLogger("MediaCrawler")
-    _logger.setLevel(level)
+    # ===== 日志格式 =====
+    fmt = "%(asctime)s %(name)s %(levelname)s (%(filename)s:%(lineno)d) - %(message)s"
+    datefmt = "%Y-%m-%d %H:%M:%S"
+    formatter = logging.Formatter(fmt, datefmt=datefmt)
 
-    # 关闭 httpx 的 INFO 日志
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    # ===== 控制台Handler（仅输出INFO及以上）=====
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
 
-    return _logger
+    # ===== 文件Handler（输出DEBUG或INFO）=====
+    file_handler = logging.FileHandler(log_path, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG if debug_to_file else logging.INFO)
+    file_handler.setFormatter(formatter)
+
+    # ===== 获取logger =====
+    logger = logging.getLogger("MediaCrawler")
+    logger.setLevel(logging.DEBUG)  # 最高等级，以便子handler自行过滤
+    logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
+
+    return logger
 
 
-logger = init_loging_config()
+logger = init_loging_config(debug_to_file=False)
 
 def str2bool(v):
     if isinstance(v, bool):
