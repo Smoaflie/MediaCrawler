@@ -254,6 +254,15 @@ class XhsDbStoreImplement(AbstractStore):
             result = await session.execute(stmt)
             return [item.__dict__ for item in result.scalars().all()]
 
+    async def get_note_last_modify_ts(self, note_id: str):
+        last_modify_ts = 0
+        async with get_session() as session:
+            if await self.content_is_exist(session, note_id):
+                stmt = select(XhsNote.last_modify_ts).where(XhsNote.note_id == note_id)
+                result = await session.execute(stmt)
+                last_modify_ts = result.scalar_one_or_none()
+            return last_modify_ts
+
 
 class XhsSqliteStoreImplement(XhsDbStoreImplement):
     def __init__(self, **kwargs):

@@ -238,3 +238,23 @@ async def update_xhs_note_video(note_id, video_content, extension_file_name):
     """
 
     await XiaoHongShuVideo().store_video({"notice_id": note_id, "video_content": video_content, "extension_file_name": extension_file_name})
+
+
+async def should_update_xhs_note(note_id: str, update_interval: int = 0):
+    """
+    更新小红书笔记评论
+    Args:
+        note_id:
+        comment_item:
+
+    Returns:
+
+    """
+    need_update = True
+    last_modify_ts = await XhsStoreFactory.create_store().get_note_last_modify_ts(note_id)
+    if utils.get_current_timestamp() - last_modify_ts > update_interval * 1000:
+        need_update = True
+    else:
+        need_update = False
+    utils.logger.info(f"[store.xhs.should_update_xhs_note] xhs note should update: {need_update}")
+    return need_update

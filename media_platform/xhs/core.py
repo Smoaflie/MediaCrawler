@@ -147,23 +147,15 @@ class XiaoHongShuCrawler(AbstractCrawler):
                         break
                     semaphore = asyncio.Semaphore(config.MAX_CONCURRENCY_NUM)
                     task_list = [
-                        self.get_note_detail_async_task(
+                        self.get_note_detail_and_comments_async_task(
                             note_id=post_item.get("id"),
                             xsec_source=post_item.get("xsec_source"),
                             xsec_token=post_item.get("xsec_token"),
                             semaphore=semaphore,
                         ) for post_item in notes_res.get("items", {}) if post_item.get("model_type") not in ("rec_query", "hot_query")
                     ]
-                    note_details = await asyncio.gather(*task_list)
-                    for note_detail in note_details:
-                        if note_detail:
-                            await xhs_store.update_xhs_note(note_detail)
-                            await self.get_notice_media(note_detail)
-                            note_ids.append(note_detail.get("note_id"))
-                            xsec_tokens.append(note_detail.get("xsec_token"))
+                    await asyncio.gather(*task_list)
                     page += 1
-                    utils.logger.info(f"[XiaoHongShuCrawler.search] Note details: {note_details}")
-                    await self.batch_get_note_comments(note_ids, xsec_tokens)
                     
                     # Sleep after each page navigation
                     await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
@@ -496,3 +488,66 @@ class XiaoHongShuCrawler(AbstractCrawler):
             extension_file_name = f"{videoNum}.mp4"
             videoNum += 1
             await xhs_store.update_xhs_note_video(note_id, content, extension_file_name)
+
+    async def get_note_detail_and_comments_async_task(
+        self,
+        note_id: str,
+        xsec_source: str,
+        xsec_token: str,
+        semaphore: asyncio.Semaphore,
+    ) -> Optional[Dict]:
+        """Get note detail
+
+        Args:
+            note_id:
+            xsec_source:
+            xsec_token:
+            semaphore:
+
+        Returns:
+            Dict: note detail
+        """
+        note_detail = None
+        async with semaphore:
+            try:
+                if config.ENABLE_UPDATE_AFTER_INTERVAL and not await xhs_store.should_update_xhs_note(note_id, config.UPDATE_INTERVAL_SECONDS):
+                    utils.logger.info(f"[get_note_detail_and_comments_async_task] Skip get note detail, note_id: {note_id}")
+                    return
+
+                utils.logger.info(f"[get_note_detail_and_comments_async_task] Begin get note detail, note_id: {note_id}")
+                note_detail = await self.xhs_client.get_note_by_id_from_html(note_id, xsec_source, xsec_token, enable_cookie=True)
+                if not note_detail:
+                    raise Exception(f"[get_note_detail_and_comments_async_task] Failed to get note detail, Id: {note_id}")
+
+                note_detail.update({"xsec_token": xsec_token, "xsec_source": xsec_source})
+                
+                # Sleep after fetching note detail
+                await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
+                utils.logger.info(f"[get_note_detail_and_comments_async_task] Sleeping for {config.CRAWLER_MAX_SLEEP_SEC} seconds after fetching note {note_id}")
+                
+                if not note_detail:
+                    return
+                
+                await xhs_store.update_xhs_note(note_detail)
+                await self.get_notice_media(note_detail)
+                note_id = note_detail.get("note_id")
+                xsec_token = note_detail.get("xsec_token")
+
+                if not config.ENABLE_GET_COMMENTS:
+                    utils.logger.info(f"[XiaoHongShuCrawler.batch_get_note_comments] Crawling comment mode is not enabled")
+                    return
+                
+                utils.logger.info(f"[XiaoHongShuCrawler.batch_get_note_comments] Begin batch get note comments, note id: {note_id}")
+            
+            except DataFetchError as ex:
+                utils.logger.error(f"[XiaoHongShuCrawler.get_note_detail_and_comments_async_task] Get note detail error: {ex}")
+                return None
+            except KeyError as ex:
+                utils.logger.error(f"[XiaoHongShuCrawler.get_note_detail_and_comments_async_task] have not fund note detail note_id:{note_id}, err: {ex}")
+                return None
+        
+        task = asyncio.create_task(
+                self.get_comments(note_id=note_id, xsec_token=xsec_token, semaphore=semaphore),
+                name=note_id,
+            )
+        await asyncio.gather(task)

@@ -51,7 +51,7 @@ def init_loging_config(log_dir="logs", log_name="media_crawler.log", debug_to_fi
     return logger
 
 
-logger = init_loging_config(debug_to_file=False)
+logger = init_loging_config(debug_to_file=True)
 
 def str2bool(v):
     if isinstance(v, bool):
