@@ -20,6 +20,7 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 
 import config
 from base.base_crawler import AbstractApiClient
+from store import xhs as xhs_store
 from tools import utils
 
 
@@ -81,7 +82,7 @@ class XiaoHongShuClient(AbstractApiClient):
         self.headers.update(headers)
         return self.headers
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1), reraise=True)
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1), reraise=False)
     async def request(self, method, url, **kwargs) -> Union[str, Any]:
         """
         封装httpx的公共请求方法，对请求响应做一些处理
@@ -420,6 +421,11 @@ class XiaoHongShuClient(AbstractApiClient):
                 callback=callback,
             )
             result.extend(sub_comments)
+            print('-'*10)
+            print(f"当前评论数量 {len(result)}")
+            print('-'*10)
+        print("运行完成退出")
+        print(comments_has_more)
         return result
 
     async def get_comments_all_sub_comments(
@@ -460,6 +466,29 @@ class XiaoHongShuClient(AbstractApiClient):
             root_comment_id = comment.get("id")
             sub_comment_cursor = comment.get("sub_comment_cursor")
 
+            sub_comment_count = comment.get("sub_comment_count")
+            stored_sub_comment_count, stored_sub_comment_count_cursor = await xhs_store.get_stored_sub_comment_sum_and_cursor(note_id, root_comment_id)
+            if int(sub_comment_count) > 1 and stored_sub_comment_count:
+                if int(stored_sub_comment_count) == int(sub_comment_count):
+                    result.extend([None] * stored_sub_comment_count)
+                    print(f"note:{note_id}, 避免重复读取root_comment:{root_comment_id}.")
+                    continue
+                comments_res = await self.get_note_sub_comments(
+                    note_id=note_id,
+                    root_comment_id=root_comment_id,
+                    xsec_token=xsec_token,
+                    cursor=stored_sub_comment_count_cursor,
+                )
+                if comments_res and comments_res.get('comments'):
+                    sub_comment_has_more = comments_res.get("has_more", False)
+                    sub_comment_cursor = comments_res.get("cursor", "")
+                    comments = comments_res["comments"]
+                    if callback:
+                        await callback(note_id, comments)
+                    print(f"note:{note_id}, root_comment:{root_comment_id}成功跳过 {stored_sub_comment_count} 条已读取评论.")
+                    await asyncio.sleep(crawl_interval)
+                    result.extend(comments)
+            
             while sub_comment_has_more:
                 comments_res = await self.get_note_sub_comments(
                     note_id=note_id,
@@ -486,6 +515,9 @@ class XiaoHongShuClient(AbstractApiClient):
                     await callback(note_id, comments)
                 await asyncio.sleep(crawl_interval)
                 result.extend(comments)
+                print('-'*10)
+                print(f"当前二级评论数量 {len(result)}")
+                print('-'*10)
         return result
 
     async def get_creator_info(

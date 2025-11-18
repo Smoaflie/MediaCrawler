@@ -89,11 +89,11 @@ class CDPBrowserManager:
             )
 
         browser_path = browser_paths[0]  # 使用第一个找到的浏览器
-        browser_name, browser_version = self.launcher.get_browser_info(browser_path)
+        # browser_name, browser_version = self.launcher.get_browser_info(browser_path)
 
-        utils.logger.info(
-            f"[CDPBrowserManager] 检测到浏览器: {browser_name} ({browser_version})"
-        )
+        # utils.logger.info(
+        #     f"[CDPBrowserManager] 检测到浏览器: {browser_name} ({browser_version})"
+        # )
         utils.logger.info(f"[CDPBrowserManager] 浏览器路径: {browser_path}")
 
         return browser_path

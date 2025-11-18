@@ -7,7 +7,7 @@ import os
 from datetime import datetime
 from typing import List, Dict, Any
 
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
@@ -263,7 +263,61 @@ class XhsDbStoreImplement(AbstractStore):
                 last_modify_ts = result.scalar_one_or_none()
             return last_modify_ts
 
+    async def get_stored_sub_comment_sum_and_cursor(self, note_id: str, root_comment_id: str):
+        """
+        查询某条根评论及其所有子评论的总数和最新一条 comment_id
+        """
+        total_count = 0
+        latest_comment_id = None
 
+        async with get_session() as session:
+            if not await self.content_is_exist(session, note_id):
+                return 0, None
+
+            # ---------- 1️⃣ 定义锚点查询 (anchor) ----------
+            anchor = (
+                select(
+                    XhsNoteComment.comment_id,
+                    XhsNoteComment.parent_comment_id,
+                    XhsNoteComment.create_time
+                )
+                .where(
+                    (XhsNoteComment.note_id == note_id)
+                    & (XhsNoteComment.parent_comment_id == root_comment_id)
+                )
+            )
+
+            # ---------- 2️⃣ 定义递归部分 ----------
+            comment_tree = anchor.cte(name="comment_tree", recursive=True)
+            recursive_part = (
+                select(
+                    XhsNoteComment.comment_id,
+                    XhsNoteComment.parent_comment_id,
+                    XhsNoteComment.create_time
+                )
+                .join(
+                    comment_tree,
+                    XhsNoteComment.parent_comment_id == comment_tree.c.comment_id
+                )
+            )
+            comment_tree = comment_tree.union_all(recursive_part)
+
+            # ---------- 3️⃣ 查询总数 ----------
+            count_stmt = select(func.count(comment_tree.c.comment_id))
+            result = await session.execute(count_stmt)
+            total_count = result.scalar_one()
+
+            # ---------- 4️⃣ 查询 create_time 最新的 comment_id ----------
+            latest_stmt = (
+                select(comment_tree.c.comment_id)
+                .order_by(comment_tree.c.create_time.desc())
+                .limit(1)
+            )
+            result = await session.execute(latest_stmt)
+            latest_comment_id = result.scalar_one_or_none()
+
+        return total_count, latest_comment_id
+    
 class XhsSqliteStoreImplement(XhsDbStoreImplement):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

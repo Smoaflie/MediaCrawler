@@ -157,7 +157,7 @@ async def update_xhs_note_comment(note_id: str, comment_item: Dict):
         "last_modify_ts": utils.get_current_timestamp(),  # 最后更新时间戳（MediaCrawler程序生成的，主要用途在db存储的时候记录一条记录最新更新时间）
         "like_count": comment_item.get("like_count", 0),
     }
-    utils.logger.info(f"[store.xhs.update_xhs_note_comment] xhs note comment:{local_db_item}")
+    utils.logger.debug(f"[store.xhs.update_xhs_note_comment] xhs note comment:{local_db_item}")
     await XhsStoreFactory.create_store().store_comment(local_db_item)
 
 
@@ -256,5 +256,7 @@ async def should_update_xhs_note(note_id: str, update_interval: int = 0):
         need_update = True
     else:
         need_update = False
-    utils.logger.info(f"[store.xhs.should_update_xhs_note] xhs note should update: {need_update}")
     return need_update
+
+async def get_stored_sub_comment_sum_and_cursor(note_id: str, root_comment_id: str):
+    return await XhsStoreFactory.create_store().get_stored_sub_comment_sum_and_cursor(note_id,root_comment_id)
