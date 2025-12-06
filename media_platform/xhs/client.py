@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 from urllib.parse import urlencode
 
 import httpx
+from tqdm import tqdm
 from playwright.async_api import BrowserContext, Page
 from tenacity import retry, stop_after_attempt, wait_fixed
 
@@ -143,7 +144,7 @@ class XiaoHongShuClient(AbstractApiClient):
                 code = resp_json.get("code", 0)
                 msg = f"code:{code}, msg:{msg}"
             utils.logger.error(msg)
-            raise Exception(msg)
+            exit()
 
         if return_response:
             return response.text
@@ -396,6 +397,9 @@ class XiaoHongShuClient(AbstractApiClient):
         result = []
         comments_has_more = True
         comments_cursor = ""
+
+        sum_progress_bar = tqdm(total=max_count, desc="爬取总评论进度", unit="条")
+        sum_progress_bar.set_postfix({"Parsed Note_id": note_id})
         while comments_has_more and len(result) < max_count:
             comments_res = await self.get_note_comments(
                 note_id=note_id, xsec_token=xsec_token, cursor=comments_cursor
@@ -414,23 +418,23 @@ class XiaoHongShuClient(AbstractApiClient):
                 await callback(note_id, comments)
             await asyncio.sleep(crawl_interval)
             result.extend(comments)
-            sub_comments = await self.get_comments_all_sub_comments(
-                comments=comments,
-                xsec_token=xsec_token,
-                crawl_interval=crawl_interval,
-                callback=callback,
-            )
-            result.extend(sub_comments)
-            print('-'*10)
-            print(f"当前评论数量 {len(result)}")
-            print('-'*10)
-        print("运行完成退出")
-        print(comments_has_more)
+
+            for comment in comments:
+                sum_progress_bar.update(1)
+                sub_comments = await self.get_comment_all_sub_comments(
+                    comment=comment,
+                    xsec_token=xsec_token,
+                    crawl_interval=crawl_interval,
+                    callback=callback,
+                )
+                result.extend(sub_comments)
+                sum_progress_bar.update(len(sub_comments))
+        sum_progress_bar.close()
         return result
 
-    async def get_comments_all_sub_comments(
+    async def get_comment_all_sub_comments(
         self,
-        comments: List[Dict],
+        comment: Dict,
         xsec_token: str,
         crawl_interval: float = 1.0,
         callback: Optional[Callable] = None,
@@ -438,7 +442,7 @@ class XiaoHongShuClient(AbstractApiClient):
         """
         获取指定一级评论下的所有二级评论, 该方法会一直查找一级评论下的所有二级评论信息
         Args:
-            comments: 评论列表
+            comment: 评论信息
             xsec_token: 验证token
             crawl_interval: 爬取一次评论的延迟单位（秒）
             callback: 一次评论爬取结束后
@@ -448,76 +452,81 @@ class XiaoHongShuClient(AbstractApiClient):
         """
         if not config.ENABLE_GET_SUB_COMMENTS:
             utils.logger.info(
-                f"[XiaoHongShuCrawler.get_comments_all_sub_comments] Crawling sub_comment mode is not enabled"
+                f"[XiaoHongShuCrawler.get_comment_all_sub_comments] Crawling sub_comment mode is not enabled"
             )
             return []
 
         result = []
-        for comment in comments:
-            note_id = comment.get("note_id")
-            sub_comments = comment.get("sub_comments")
-            if sub_comments and callback:
-                await callback(note_id, sub_comments)
+        note_id = comment.get("note_id")
+        sub_comments = comment.get("sub_comments")
+        if sub_comments and callback:
+            await callback(note_id, sub_comments)
+            result.extend(sub_comments)
 
-            sub_comment_has_more = comment.get("sub_comment_has_more")
-            if not sub_comment_has_more:
-                continue
+        sub_comment_has_more = comment.get("sub_comment_has_more")
+        if not sub_comment_has_more:
+            return result
 
-            root_comment_id = comment.get("id")
-            sub_comment_cursor = comment.get("sub_comment_cursor")
+        root_comment_id = comment.get("id")
+        sub_comment_cursor = comment.get("sub_comment_cursor")
 
-            sub_comment_count = comment.get("sub_comment_count")
-            stored_sub_comment_count, stored_sub_comment_count_cursor = await xhs_store.get_stored_sub_comment_sum_and_cursor(note_id, root_comment_id)
-            if int(sub_comment_count) > 1 and stored_sub_comment_count:
-                if int(stored_sub_comment_count) == int(sub_comment_count):
-                    result.extend([None] * stored_sub_comment_count)
-                    print(f"note:{note_id}, 避免重复读取root_comment:{root_comment_id}.")
-                    continue
-                comments_res = await self.get_note_sub_comments(
-                    note_id=note_id,
-                    root_comment_id=root_comment_id,
-                    xsec_token=xsec_token,
-                    cursor=stored_sub_comment_count_cursor,
-                )
-                if comments_res and comments_res.get('comments'):
-                    sub_comment_has_more = comments_res.get("has_more", False)
-                    sub_comment_cursor = comments_res.get("cursor", "")
-                    comments = comments_res["comments"]
-                    if callback:
-                        await callback(note_id, comments)
-                    print(f"note:{note_id}, root_comment:{root_comment_id}成功跳过 {stored_sub_comment_count} 条已读取评论.")
-                    await asyncio.sleep(crawl_interval)
-                    result.extend(comments)
-            
-            while sub_comment_has_more:
-                comments_res = await self.get_note_sub_comments(
-                    note_id=note_id,
-                    root_comment_id=root_comment_id,
-                    xsec_token=xsec_token,
-                    num=10,
-                    cursor=sub_comment_cursor,
-                )
-
-                if comments_res is None:
-                    utils.logger.info(
-                        f"[XiaoHongShuClient.get_comments_all_sub_comments] No response found for note_id: {note_id}"
-                    )
-                    continue
+        sub_comment_count = comment.get("sub_comment_count")
+        sub_progress_bar = tqdm(total=float(sub_comment_count), desc="爬取子评论进度", unit="条", leave=False)
+        stored_sub_comment_count, stored_sub_comment_count_cursor = await xhs_store.get_stored_sub_comment_sum_and_cursor(note_id, root_comment_id)
+        if int(sub_comment_count) > 1:
+            if stored_sub_comment_count and int(stored_sub_comment_count) == int(sub_comment_count):
+                result.extend([None] * stored_sub_comment_count)
+                utils.logger.debug(f"note:{note_id}, root_comment:{root_comment_id}不存在新评论, 已略过.")
+                return result
+            comments_res = await self.get_note_sub_comments(
+                note_id=note_id,
+                root_comment_id=root_comment_id,
+                xsec_token=xsec_token,
+                cursor=stored_sub_comment_count_cursor,
+            )
+            if comments_res and comments_res.get('comments'):
                 sub_comment_has_more = comments_res.get("has_more", False)
                 sub_comment_cursor = comments_res.get("cursor", "")
-                if "comments" not in comments_res:
-                    utils.logger.info(
-                        f"[XiaoHongShuClient.get_comments_all_sub_comments] No 'comments' key found in response: {comments_res}"
-                    )
-                    break
                 comments = comments_res["comments"]
                 if callback:
                     await callback(note_id, comments)
+                utils.logger.debug(f"note:{note_id}, root_comment:{root_comment_id}成功跳过 {stored_sub_comment_count} 条已读取评论.")
                 await asyncio.sleep(crawl_interval)
                 result.extend(comments)
-                print('-'*10)
-                print(f"当前二级评论数量 {len(result)}")
-                print('-'*10)
+                sub_progress_bar.write("主评论: " + comment.get("content","")[:80] + "\n子评论: " + comments[-1].get("content","")[:80])
+                sub_progress_bar.update(len(comments))
+        
+        while sub_comment_has_more:
+            comments_res = await self.get_note_sub_comments(
+                note_id=note_id,
+                root_comment_id=root_comment_id,
+                xsec_token=xsec_token,
+                num=10,
+                cursor=sub_comment_cursor,
+            )
+
+            if comments_res is None:
+                utils.logger.info(
+                    f"[XiaoHongShuClient.get_comment_all_sub_comments] No response found for note_id: {note_id}"
+                )
+                continue
+            sub_comment_has_more = comments_res.get("has_more", False)
+            sub_comment_cursor = comments_res.get("cursor", "")
+            if "comments" not in comments_res:
+                utils.logger.info(
+                    f"[XiaoHongShuClient.get_comment_all_sub_comments] No 'comments' key found in response: {comments_res}"
+                )
+                break
+            comments = comments_res["comments"]
+            if callback:
+                await callback(note_id, comments)
+            await asyncio.sleep(crawl_interval)
+            result.extend(comments)
+            # TODO 优化子评论进度显示 目前的多行显示方法极易因添加新进度条而错乱
+            sub_progress_bar.write("\033[F\033[K"*2 + "主评论: " + comment.get("content","")[:50] + "\n子评论: " + comments[-1].get("content","")[:50])
+            sub_progress_bar.update(len(comments))
+        sub_progress_bar.write("\033[F\033[K" * 3)
+        sub_progress_bar.close()
         return result
 
     async def get_creator_info(

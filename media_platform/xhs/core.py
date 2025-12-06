@@ -195,12 +195,12 @@ class XiaoHongShuCrawler(AbstractCrawler):
                 callback=self.fetch_creator_notes_detail,
             )
 
-            note_ids = []
+            notes_info = []
             xsec_tokens = []
             for note_item in all_notes_list:
-                note_ids.append(note_item.get("note_id"))
+                notes_info.append((note_item.get("note_id"), note_item.get("interact_info", {}).get("comment_count", 0)))
                 xsec_tokens.append(note_item.get("xsec_token"))
-            await self.batch_get_note_comments(note_ids, xsec_tokens)
+            await self.batch_get_note_comments(notes_info, xsec_tokens)
 
     async def fetch_creator_notes_detail(self, note_list: List[Dict]):
         """
@@ -241,16 +241,16 @@ class XiaoHongShuCrawler(AbstractCrawler):
             )
             get_note_detail_task_list.append(crawler_task)
 
-        need_get_comment_note_ids = []
+        need_get_comment_notes_info = []
         xsec_tokens = []
         note_details = await asyncio.gather(*get_note_detail_task_list)
         for note_detail in note_details:
             if note_detail:
-                need_get_comment_note_ids.append(note_detail.get("note_id", ""))
+                need_get_comment_notes_info.append((note_detail.get("note_id", ""), note_detail.get("interact_info", {}).get("comment_count", 0)))
                 xsec_tokens.append(note_detail.get("xsec_token", ""))
                 await xhs_store.update_xhs_note(note_detail)
                 await self.get_notice_media(note_detail)
-        await self.batch_get_note_comments(need_get_comment_note_ids, xsec_tokens)
+        await self.batch_get_note_comments(need_get_comment_notes_info, xsec_tokens)
 
     async def get_note_detail_async_task(
         self,
@@ -293,24 +293,24 @@ class XiaoHongShuCrawler(AbstractCrawler):
                 utils.logger.error(f"[XiaoHongShuCrawler.get_note_detail_async_task] have not fund note detail note_id:{note_id}, err: {ex}")
                 return None
 
-    async def batch_get_note_comments(self, note_list: List[str], xsec_tokens: List[str]):
+    async def batch_get_note_comments(self, note_info_list: List[str], xsec_tokens: List[str]):
         """Batch get note comments"""
         if not config.ENABLE_GET_COMMENTS:
             utils.logger.info(f"[XiaoHongShuCrawler.batch_get_note_comments] Crawling comment mode is not enabled")
             return
 
-        utils.logger.info(f"[XiaoHongShuCrawler.batch_get_note_comments] Begin batch get note comments, note list: {note_list}")
+        utils.logger.info(f"[XiaoHongShuCrawler.batch_get_note_comments] Begin batch get note comments, note list: {note_info_list}")
         semaphore = asyncio.Semaphore(config.MAX_CONCURRENCY_NUM)
         task_list: List[Task] = []
-        for index, note_id in enumerate(note_list):
+        for index, (note_id, note_comment_count) in enumerate(note_info_list):
             task = asyncio.create_task(
-                self.get_comments(note_id=note_id, xsec_token=xsec_tokens[index], semaphore=semaphore),
+                self.get_comments(note_id=note_id, xsec_token=xsec_tokens[index], semaphore=semaphore, comments_num=int(note_comment_count)),
                 name=note_id,
             )
             task_list.append(task)
         await asyncio.gather(*task_list)
 
-    async def get_comments(self, note_id: str, xsec_token: str, semaphore: asyncio.Semaphore):
+    async def get_comments(self, note_id: str, xsec_token: str, semaphore: asyncio.Semaphore, comments_num: Optional[int] = None):
         """Get note comments with keyword filtering and quantity limitation"""
         async with semaphore:
             utils.logger.info(f"[XiaoHongShuCrawler.get_comments] Begin get note id comments {note_id}")
@@ -321,7 +321,7 @@ class XiaoHongShuCrawler(AbstractCrawler):
                 xsec_token=xsec_token,
                 crawl_interval=crawl_interval,
                 callback=xhs_store.batch_update_xhs_note_comments,
-                max_count=CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES,
+                max_count=min(CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES, comments_num) if comments_num else CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES,
             )
             
             # Sleep after fetching comments
@@ -547,7 +547,7 @@ class XiaoHongShuCrawler(AbstractCrawler):
                 return None
         
         task = asyncio.create_task(
-                self.get_comments(note_id=note_id, xsec_token=xsec_token, semaphore=semaphore),
+                self.get_comments(note_id=note_id, xsec_token=xsec_token, semaphore=semaphore, comments_num=int(note_detail.get("interact_info", {}).get("comment_count", 0))),
                 name=note_id,
             )
         await asyncio.gather(task)
