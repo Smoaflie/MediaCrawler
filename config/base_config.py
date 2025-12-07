@@ -10,8 +10,9 @@
 
 # 基础配置
 PLATFORM = "xhs"  # 平台，xhs | dy | ks | bili | wb | tieba | zhihu
-KEYWORDS = "A娃"  # 关键词搜索配置，以英文逗号分隔
-LOGIN_TYPE = "qrcode"  # qrcode or phone or cookie
+KEYWORDS = "ADHD"  # 关键词搜索配置，以英文逗号分隔
+LOGIN_TYPE = "phone"  # qrcode or phone or cookie
+PHONE_NUMBER = ""  # 登录手机号，LOGIN_TYPE=phone时必填
 COOKIES = ""
 CRAWLER_TYPE = (
     "search"  # 爬取类型，search(关键词搜索) | detail(帖子详情)| creator(创作者主页数据)
@@ -62,7 +63,7 @@ BROWSER_LAUNCH_TIMEOUT = 30
 AUTO_CLOSE_BROWSER = True
 
 # 数据保存类型选项配置,支持四种类型：csv、db、json、sqlite, 最好保存到DB，有排重的功能。
-SAVE_DATA_OPTION = "sqlite"  # csv or db or json or sqlite
+SAVE_DATA_OPTION = "db"  # csv or db or json or sqlite
 
 # 用户浏览器缓存的浏览器文件配置
 USER_DATA_DIR = "%s_user_data_dir"  # %s will be replaced by platform name
@@ -71,10 +72,10 @@ USER_DATA_DIR = "%s_user_data_dir"  # %s will be replaced by platform name
 START_PAGE = 1
 
 # 爬取视频/帖子的数量控制
-CRAWLER_MAX_NOTES_COUNT = 15
+CRAWLER_MAX_NOTES_COUNT = 1500
 
 # 并发爬虫数量控制
-MAX_CONCURRENCY_NUM = 5
+MAX_CONCURRENCY_NUM = 1
 
 # 是否开启爬媒体模式（包含图片或视频资源），默认不开启爬媒体
 ENABLE_GET_MEIDAS = False
@@ -83,7 +84,7 @@ ENABLE_GET_MEIDAS = False
 ENABLE_GET_COMMENTS = True
 
 # 爬取一级评论的数量控制(单视频/帖子)
-CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES = 1000
+CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES = 100000
 
 # 是否开启爬二级评论模式, 默认不开启爬二级评论
 # 老版本项目使用了 db, 则需参考 schema/tables.sql line 287 增加表字段
@@ -91,7 +92,7 @@ ENABLE_GET_SUB_COMMENTS = True
 
 # 是否仅在上次修改时间超过指定间隔(/ms)后才更新
 ENABLE_UPDATE_AFTER_INTERVAL = True
-UPDATE_INTERVAL_SECONDS = 1*60*60*24
+UPDATE_INTERVAL_SECONDS = 4*60*60*24
 
 # 词云相关
 # 是否开启生成评论词云图
@@ -110,7 +111,7 @@ STOP_WORDS_FILE = "./docs/hit_stopwords.txt"
 FONT_PATH = "./docs/STZHONGS.TTF"
 
 # 爬取间隔时间
-CRAWLER_MAX_SLEEP_SEC = 1
+CRAWLER_MAX_SLEEP_SEC = 1.1
 
 from .bilibili_config import *
 from .xhs_config import *

@@ -34,6 +34,15 @@ class SmsNotification(BaseModel):
     timestamp: str
 
 
+class SmsCodePayload(BaseModel):
+    """Manual payload for directly pushing a verification code into cache."""
+
+    platform: str
+    current_number: str
+    sms_code: str
+    expire_seconds: int = 60 * 3
+
+
 def extract_verification_code(message: str) -> str:
     """
     Extract verification code of 6 digits from the SMS.
@@ -41,6 +50,12 @@ def extract_verification_code(message: str) -> str:
     pattern = re.compile(r'\b[0-9]{6}\b')
     codes: List[str] = pattern.findall(message)
     return codes[0] if codes else ""
+
+
+def save_sms_code(platform: str, phone: str, sms_code: str, expire_seconds: int = 60 * 3) -> None:
+    """Persist sms code into cache (memory/redis) with unified key format."""
+    key = f"{platform}_{phone}"
+    cache_client.set(key, sms_code, expire_time=expire_seconds)
 
 
 @app.post("/")
@@ -64,9 +79,18 @@ def receive_sms_notification(sms: SmsNotification):
     sms_code = extract_verification_code(sms.sms_content)
     if sms_code:
         # Save the verification code in Redis and set the expiration time to 3 minutes.
-        key = f"{sms.platform}_{sms.current_number}"
-        cache_client.set(key, sms_code, expire_time=60 * 3)
+        save_sms_code(sms.platform, sms.current_number, sms_code)
 
+    return {"status": "ok"}
+
+
+@app.post("/cache/sms-code")
+def push_sms_code(payload: SmsCodePayload):
+    """
+    Manually push an sms verification code into cache (useful when cache type is memory).
+    """
+    utils.logger.info(f"Push sms code manually: {payload.platform}, {payload.current_number}")
+    save_sms_code(payload.platform, payload.current_number, payload.sms_code, payload.expire_seconds)
     return {"status": "ok"}
 
 

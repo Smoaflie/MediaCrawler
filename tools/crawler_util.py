@@ -32,11 +32,16 @@ from . import utils
 
 async def find_login_qrcode(page: Page, selector: str) -> str:
     """find login qrcode image from target selector"""
+
     try:
-        elements = await page.wait_for_selector(
-            selector=selector,
-        )
-        login_qrcode_img = str(await elements.get_property("src"))  # type: ignore
+        # Wait for at least one, then take the last matching element.
+        await page.wait_for_selector(selector=selector)
+        all_elements = await page.query_selector_all(selector)
+        if not all_elements:
+            raise Exception("no qrcode element found")
+        target_ele = all_elements[-1]
+
+        login_qrcode_img = str(await target_ele.get_property("src"))  # type: ignore
         if "http://" in login_qrcode_img or "https://" in login_qrcode_img:
             async with httpx.AsyncClient(follow_redirects=True) as client:
                 utils.logger.info(f"[find_login_qrcode] get qrcode by url:{login_qrcode_img}")
@@ -63,6 +68,7 @@ async def find_qrcode_img_from_canvas(page: Page, canvas_selector: str) -> str:
     Returns:
 
     """
+    from config import PLATFORM  # Lazy import to avoid circular issues
 
     # 等待Canvas元素加载完成
     canvas = await page.wait_for_selector(canvas_selector)
@@ -75,8 +81,15 @@ async def find_qrcode_img_from_canvas(page: Page, canvas_selector: str) -> str:
     return base64_image
 
 
-def show_qrcode(qr_code) -> None:  # type: ignore
-    """parse base64 encode qrcode image and show it"""
+def show_qrcode(qr_code, close_event=None) -> None:  # type: ignore
+    """
+    Parse base64 encode qrcode image and show it.
+    NOTE: To avoid Tkinter cross-thread errors, we only use the default image viewer.
+    close_event is ignored in this fallback viewer (no auto-close support).
+    """
+    import os
+    if os.getenv("MEDIA_CRAWLER_SERVER_MODE") == "1":
+        return  # In server mode we don't pop up the system viewer.
     if "," in qr_code:
         qr_code = qr_code.split(",")[1]
     qr_code = base64.b64decode(qr_code)
@@ -88,8 +101,15 @@ def show_qrcode(qr_code) -> None:  # type: ignore
     new_image.paste(image, (10, 10))
     draw = ImageDraw.Draw(new_image)
     draw.rectangle((0, 0, width + 19, height + 19), outline=(0, 0, 0), width=1)
-    del ImageShow.UnixViewer.options["save_all"]
-    new_image.show()
+
+    # Use default image viewer (non-Tk) to avoid Tcl_AsyncDelete cross-thread errors.
+    try:
+        new_image.show()
+        if close_event:
+            # Mark event as handled so upstream逻辑不会重复创建窗口
+            close_event.clear()
+    except Exception as e:
+        utils.logger.error(f"[show_qrcode] failed to show qrcode: {e}")
 
 
 def get_user_agent() -> str:

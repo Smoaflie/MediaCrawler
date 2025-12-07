@@ -21,6 +21,8 @@ class CacheFactory:
     缓存工厂类
     """
 
+    _cache_instances = {}
+
     @staticmethod
     def create_cache(cache_type: str, *args, **kwargs):
         """
@@ -30,11 +32,18 @@ class CacheFactory:
         :param kwargs: 关键字参数
         :return:
         """
+        # Keep memory cache singleton so different callers can share data
+        if cache_type in CacheFactory._cache_instances:
+            return CacheFactory._cache_instances[cache_type]
+
         if cache_type == 'memory':
             from .local_cache import ExpiringLocalCache
-            return ExpiringLocalCache(*args, **kwargs)
+            cache_instance = ExpiringLocalCache(*args, **kwargs)
         elif cache_type == 'redis':
             from .redis_cache import RedisCache
-            return RedisCache()
+            cache_instance = RedisCache()
         else:
             raise ValueError(f'Unknown cache type: {cache_type}')
+
+        CacheFactory._cache_instances[cache_type] = cache_instance
+        return cache_instance
