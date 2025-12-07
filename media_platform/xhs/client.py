@@ -55,7 +55,29 @@ class XiaoHongShuClient(AbstractApiClient):
         self.playwright_page = playwright_page
         self.cookie_dict = cookie_dict
         self._extractor = XiaoHongShuExtractor()
+        # Reuse a single HTTPX client to avoid per-request TLS handshakes (saves ~hundreds ms).
+        self._client = httpx.AsyncClient(
+            proxy=self.proxy,
+            timeout=self.timeout,
+            limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
+        )
 
+    async def close(self) -> None:
+        """Close underlying HTTP client."""
+        if getattr(self, "_client", None):
+            await self._client.aclose()
+            self._client = None
+
+    def __del__(self):
+        """Destructor to ensure resources are cleaned up."""
+        try:
+            # 确保在对象销毁时调用 `close`
+            import asyncio
+            asyncio.run(self.close())
+        except Exception as e:
+            # 处理任何可能的错误（如事件循环未启动等）
+            print(f"Error during cleanup: {e}")
+            
     async def _pre_headers(self, url: str, data=None) -> Dict:
         """
         请求头参数签名
@@ -113,11 +135,12 @@ class XiaoHongShuClient(AbstractApiClient):
             curl_parts.append(f"# Params: {params}")  # 注释显示 params，避免过长
         utils.logger.debug("HTTP Request:\n" + " ".join(curl_parts))
 
-        async with httpx.AsyncClient(proxy=self.proxy) as client:
-            response = await client.request(method,
-                                            url,
-                                            timeout=self.timeout,
-                                            **kwargs)
+        response = await self._client.request(
+            method,
+            url,
+            timeout=self.timeout,
+            **kwargs,
+        )
 
         # === 请求后日志：输出状态码与响应体 ===
         utils.logger.debug(f"HTTP Response: {response.status_code} ← {url}")
