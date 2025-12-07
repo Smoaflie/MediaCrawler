@@ -478,23 +478,29 @@ class XiaoHongShuClient(AbstractApiClient):
                 result.extend([None] * stored_sub_comment_count)
                 utils.logger.debug(f"note:{note_id}, root_comment:{root_comment_id}不存在新评论, 已略过.")
                 return result
-            comments_res = await self.get_note_sub_comments(
-                note_id=note_id,
-                root_comment_id=root_comment_id,
-                xsec_token=xsec_token,
-                cursor=stored_sub_comment_count_cursor,
-            )
-            if comments_res and comments_res.get('comments'):
-                sub_comment_has_more = comments_res.get("has_more", False)
-                sub_comment_cursor = comments_res.get("cursor", "")
-                comments = comments_res["comments"]
-                if callback:
-                    await callback(note_id, comments)
-                utils.logger.debug(f"note:{note_id}, root_comment:{root_comment_id}成功跳过 {stored_sub_comment_count} 条已读取评论.")
-                await asyncio.sleep(crawl_interval)
-                result.extend(comments)
-                sub_progress_bar.write("主评论: " + comment.get("content","")[:80] + "\n子评论: " + comments[-1].get("content","")[:80])
-                sub_progress_bar.update(len(comments))
+            
+            # 存在特殊情况: 评论没按时间排序，导致“回复他人的评论”出现在前面，导致无法索引到正确的cursor
+            if stored_sub_comment_count:
+                try:
+                    comments_res = await self.get_note_sub_comments(
+                        note_id=note_id,
+                        root_comment_id=root_comment_id,
+                        xsec_token=xsec_token,
+                        cursor=stored_sub_comment_count_cursor,
+                    )
+                    if comments_res and comments_res.get('comments'):
+                        sub_comment_has_more = comments_res.get("has_more", False)
+                        sub_comment_cursor = comments_res.get("cursor", "")
+                        comments = comments_res["comments"]
+                        if callback:
+                            await callback(note_id, comments)
+                        utils.logger.debug(f"note:{note_id}, root_comment:{root_comment_id}成功跳过 {stored_sub_comment_count} 条已读取评论.")
+                        await asyncio.sleep(crawl_interval)
+                        result.extend(comments)
+                        sub_progress_bar.write("主评论: " + comment.get("content","")[:80] + "\n子评论: " + comments[-1].get("content","")[:80])
+                        sub_progress_bar.update(len(comments))
+                except DataFetchError:
+                    pass
         
         while sub_comment_has_more:
             comments_res = await self.get_note_sub_comments(
